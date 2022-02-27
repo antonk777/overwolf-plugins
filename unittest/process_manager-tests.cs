@@ -1,5 +1,5 @@
 ﻿using System;
-using com.overwolf.com.overwolf.procmgr;
+using com.overwolf.procmgr;
 
 namespace overwolf.plugins.unittest {
   class ProcessManagerTests {
@@ -8,20 +8,20 @@ namespace overwolf.plugins.unittest {
       var ProcessManager = new ProcessManager();
 
       bool obsRunning = ProcessManager.isProcessRunning("obs64");
-      bool streamLabsRunning = 
+      bool streamLabsRunning =
         ProcessManager.isProcessRunning("Streamlabs OBS");
 
       string path = @"notepad.exe";
       string arguments = "";
       object environmentVariables = "{}";
-      bool hidden = true;
+      bool hidden = false;
       var processId = 0;
 
       ProcessManager.onDataReceivedEvent += (result) => {
         Console.WriteLine("Line: {0}", result);
       };
 
-      ProcessManager.launchProcess(path,
+      ProcessManager.launchProcessAsAdmin(path,
                                    arguments,
                                    environmentVariables,
                                    hidden,

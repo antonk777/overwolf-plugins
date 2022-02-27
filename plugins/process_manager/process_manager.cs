@@ -11,7 +11,7 @@ using System.Text;
 using System.Threading.Tasks;
 using static com.overwolf.procmgr.PInvokes;
 
-namespace com.overwolf.com.overwolf.procmgr {
+namespace com.overwolf.procmgr {
   public class ProcessManager : IDisposable {
     private class ProcessTrackingInfo {
       public Process process { get; set; }
@@ -19,7 +19,7 @@ namespace com.overwolf.com.overwolf.procmgr {
     }
 
     private readonly string _dllLocation;
-    private Dictionary<int, ProcessTrackingInfo> _runningProcess = 
+    private Dictionary<int, ProcessTrackingInfo> _runningProcess =
                                      new Dictionary<int, ProcessTrackingInfo>();
     private bool _disposing = false;
 
@@ -53,28 +53,28 @@ namespace com.overwolf.com.overwolf.procmgr {
 
     //--------------------------------------------------------------------------
     // path can be relative to the dll location or absolute
-    public void launchProcess(string executableFilename, 
-                              string arguments, 
+    public void launchProcess(string executableFilename,
+                              string arguments,
                               object environmentVariables,
                               bool hidden,
                               // kill process if our process ends
                               bool killOnClose,
                               Action<object> callback) {
       Task.Run(() => {
-        try {   
+        try {
           Process process = new Process();
 
           process.StartInfo.UseShellExecute = false;
           process.StartInfo.FileName = executableFilename;
           process.StartInfo.Arguments = arguments;
           process.StartInfo.CreateNoWindow = hidden;
-          process.StartInfo.WindowStyle = hidden ? ProcessWindowStyle.Hidden : 
+          process.StartInfo.WindowStyle = hidden ? ProcessWindowStyle.Hidden :
                                                    ProcessWindowStyle.Normal;
           process.StartInfo.RedirectStandardOutput = true;
           process.StartInfo.RedirectStandardError = true;
           process.StartInfo.RedirectStandardInput = true;
           process.StartInfo.StandardOutputEncoding = Encoding.UTF8;
-          process.StartInfo.WorkingDirectory = 
+          process.StartInfo.WorkingDirectory =
             new FileInfo(executableFilename).Directory.FullName;
           onDataReceivedEvent(new { data = process.StartInfo.WorkingDirectory });
 
@@ -89,7 +89,7 @@ namespace com.overwolf.com.overwolf.procmgr {
               return;
             }
           }
-           
+
           process.ErrorDataReceived += (object sender, DataReceivedEventArgs e) => {
             if (!String.IsNullOrEmpty(e.Data))
             {
@@ -102,7 +102,7 @@ namespace com.overwolf.com.overwolf.procmgr {
           {
             if (!String.IsNullOrEmpty(e.Data))
             {
-              if (onDataReceivedEvent != null) { 
+              if (onDataReceivedEvent != null) {
                 onDataReceivedEvent(new { data = e.Data });
               }
             }
@@ -112,6 +112,82 @@ namespace com.overwolf.com.overwolf.procmgr {
 
           process.BeginOutputReadLine();
           process.BeginErrorReadLine();
+
+          if (killOnClose) {
+            ChildProcessTracker.AddProcess(process);
+          }
+
+          lock (this) {
+            _runningProcess.Add(process.Id, new ProcessTrackingInfo() {
+              process = process,
+              track = killOnClose
+            });
+          }
+
+          process.EnableRaisingEvents = true;
+          process.Exited += ProcessExited;
+          callback(new { data = process.Id });
+        } catch (Exception ex) {
+          callback(new { error = "unknown exception: " + ex.ToString() });
+        }
+      });
+    }
+
+    //--------------------------------------------------------------------------
+    // path can be relative to the dll location or absolute
+    public void launchProcessAsAdmin(string executableFilename,
+                              string arguments,
+                              object environmentVariables,
+                              bool hidden,
+                              // kill process if our process ends
+                              bool killOnClose,
+                              Action<object> callback) {
+      Task.Run(() => {
+        try {
+          Process process = new Process();
+
+          process.StartInfo.Verb = "runas";
+          process.StartInfo.UseShellExecute = true;
+          process.StartInfo.FileName = executableFilename;
+          process.StartInfo.Arguments = arguments;
+          process.StartInfo.CreateNoWindow = hidden;
+          process.StartInfo.WindowStyle = hidden ? ProcessWindowStyle.Hidden :
+                                                   ProcessWindowStyle.Normal;
+          process.StartInfo.WorkingDirectory =
+            new FileInfo(executableFilename).Directory.FullName;
+          onDataReceivedEvent(new { data = process.StartInfo.WorkingDirectory });
+
+          if (environmentVariables != null) {
+            try {
+             var jsonObject = JObject.Parse(environmentVariables.ToString());
+             foreach (var item in jsonObject) {
+               process.StartInfo.EnvironmentVariables[item.Key] = (string)item.Value;
+             }
+            } catch {
+              callback(new { error = "can't set environment variables" });
+              return;
+            }
+          }
+
+          process.ErrorDataReceived += (object sender, DataReceivedEventArgs e) => {
+            if (!String.IsNullOrEmpty(e.Data))
+            {
+              if (onDataReceivedEvent != null) {
+                onDataReceivedEvent(new { error = e.Data });
+              }
+            }
+          };
+          process.OutputDataReceived += (object sender, DataReceivedEventArgs e) =>
+          {
+            if (!String.IsNullOrEmpty(e.Data))
+            {
+              if (onDataReceivedEvent != null) {
+                onDataReceivedEvent(new { data = e.Data });
+              }
+            }
+          };
+
+          process.Start();
 
           if (killOnClose) {
             ChildProcessTracker.AddProcess(process);
@@ -184,8 +260,8 @@ namespace com.overwolf.com.overwolf.procmgr {
 
 
           foreach (ProcessThread pT in info.process.Threads) {
-            IntPtr thread = PInvokes.OpenThread(ThreadAccess.SUSPEND_RESUME, 
-                                                false, 
+            IntPtr thread = PInvokes.OpenThread(ThreadAccess.SUSPEND_RESUME,
+                                                false,
                                                 (uint)pT.Id);
             if (thread == IntPtr.Zero) {
               continue;
@@ -216,8 +292,8 @@ namespace com.overwolf.com.overwolf.procmgr {
           }
 
           foreach (ProcessThread pT in info.process.Threads) {
-            IntPtr pOpenThread = OpenThread(ThreadAccess.SUSPEND_RESUME, 
-                                            false, 
+            IntPtr pOpenThread = OpenThread(ThreadAccess.SUSPEND_RESUME,
+                                            false,
                                             (uint)pT.Id);
 
             if (pOpenThread == IntPtr.Zero) {

@@ -12,7 +12,7 @@
   },
   "permissions": ["Extensions"],
   "data": {
-    "start_window":"index",	  
+    "start_window":"index",
     "windows":{
       "index":{
         "file":"index.html",
@@ -28,7 +28,7 @@
           "Left": 300
         }
       }
-    },	
+    },
 	"extra-objects": {
       "process-manager-plugin": {
         "file": "process_manager.dll",
