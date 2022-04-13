@@ -56,6 +56,9 @@ namespace overwolf.plugins.simpleio {
     public static string kLocalApplicationData =
      GetFolderPathSafe(Environment.SpecialFolder.LocalApplicationData);
 
+    public static string kPluginPath =
+     System.Reflection.Assembly.GetExecutingAssembly().Location;
+
     private static string GetFolderPathSafe(Environment.SpecialFolder folder) {
       try {
         return Environment.GetFolderPath(folder);

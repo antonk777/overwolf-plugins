@@ -37,7 +37,6 @@ namespace overwolf.plugins.unittest {
 
       string line = Console.ReadLine();
       while (line != "q") {
-        ProcessManager.sendTextToProcess(processId, line);
         line = Console.ReadLine();
       }
 

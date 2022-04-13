@@ -1,10 +1,10 @@
 ﻿using System;
 using System.IO;
 using System.Linq;
-using System.Runtime.InteropServices;
 using System.Text;
-using System.Threading;
 using System.Threading.Tasks;
+using System.Net;
+using System.Security.Cryptography;
 
 namespace overwolf.plugins.simpleio {
   public class SimpleIOPlugin : IDisposable {
@@ -16,11 +16,10 @@ namespace overwolf.plugins.simpleio {
 
     public SimpleIOPlugin() {
     }
-    
+
     #region Events
     public event Action<object, object, object> onFileListenerChanged;
     public event Action<object, object, object, object> onFileListenerChanged2;
-    public event Action<object, object, object> onOutputDebugString;
     #endregion Events
 
     #region IDisposable
@@ -102,16 +101,8 @@ namespace overwolf.plugins.simpleio {
       get { return Constants.kLocalApplicationData; }
     }
 
-    public bool isMouseLeftButtonPressed {
-      get {
-        return Convert.ToBoolean(GetKeyState(VK_LBUTTON) & KEY_PRESSED);
-
-      }
-    }
-    public bool isMouseRightButtonPressed {
-      get {
-        return Convert.ToBoolean(GetKeyState(VK_RBUTTON) & KEY_PRESSED);
-      }
+    public string PLUGINPATH {
+      get { return Constants.kPluginPath; }
     }
 
     #endregion
@@ -135,8 +126,6 @@ namespace overwolf.plugins.simpleio {
           callback(string.Format("error: ", ex.ToString()));
         }
       });
-
-
     }
 
     public void isDirectory(string path, Action<object> callback) {
@@ -163,36 +152,57 @@ namespace overwolf.plugins.simpleio {
       }
     }
 
-    public void writeLocalAppDataFile(string path, string content, Action<object, object> callback) {
+    public void writeFile(string path, string content, Action<object, object> callback) {
       if (callback == null)
         return;
 
       try {
         Task.Run(() => {
-          string filePath = "";
           try {
             path = path.Replace('/', '\\');
             if (path.StartsWith("\\")) {
               path = path.Remove(0, 1);
             }
-            filePath = Path.Combine(LOCALAPPDATA, path);
 
             // make sure the folder exists, prior to writing the file
-            FileInfo fileInfo = new FileInfo(filePath);
+            FileInfo fileInfo = new FileInfo(path);
             if (!fileInfo.Directory.Exists) {
               fileInfo.Directory.Create();
             }
 
-            using (FileStream filestream = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.Write)) {
+            using (FileStream filestream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.Write)) {
               byte[] info = new UTF8Encoding(false).GetBytes(content);
               filestream.Write(info, 0, info.Length);
             }
             callback(true, "");
           } catch (Exception ex) {
             callback(false, string.Format("unexpected error when trying to write to '{0}' : {1}",
-              filePath, ex.ToString()));
+              path, ex.ToString()));
           }
         });
+      } catch (Exception ex) {
+        callback(false, string.Format("error: ", ex.ToString()));
+      }
+    }
+
+    public void deleteFile(string path, Action<object, object> callback) {
+      if (callback == null)
+        return;
+
+      try {
+        if (Directory.Exists(path)) {
+          Directory.Delete(path, true);
+          callback(true, "");
+          return;
+        }
+
+        if (File.Exists(path)) {
+          File.Delete(path);
+          callback(true, "");
+          return;
+        }
+
+        callback(true, "");
       } catch (Exception ex) {
         callback(false, string.Format("error: ", ex.ToString()));
       }
@@ -383,30 +393,136 @@ namespace overwolf.plugins.simpleio {
       FileListenerManager.stopFileListen(id);
     }
 
-    public void iniReadValue(string section, string key, string filePath, Action<object, object> callback) {
-      Task.Run(() => {
-        IniFile.IniReadValue(section, key, filePath, callback);
-      });
+    /// <summary>
+    /// Download a file from the web
+    /// </summary>
+    /// <param name="url">URL to download from</param>
+    /// <param name="localFile">Destination file on local disk</param>
+    /// <param name="callback">Callback that will receive results</param>
+    /// <param name="onProgress">Callback receive download progress</param>
+    public void downloadFile(
+      string url,
+      string localFile,
+      Action<object> callback,
+      Action<int> onProgress = null
+    ) {
+      PrepareLocalFileForDownload(localFile);
+      SetServicePointManagerGlobalParams();
+
+      try {
+        using (WebClient wc = new WebClient()) {
+          if (onProgress != null) {
+            wc.DownloadProgressChanged += (_, e) => {
+              onProgress(e.ProgressPercentage);
+            };
+          }
+
+          wc.DownloadFileCompleted += (_, e) => {
+            callback(new {
+              status = true,
+              md5 = CalculateMD5(localFile)
+            });
+          };
+
+          wc.DownloadFileAsync(new System.Uri(url), localFile);
+        }
+      } catch (Exception e) {
+        callback(new {
+          status = false,
+          error = e.Message.ToString()
+        });
+      }
     }
-    public void iniWriteValue(string section, string key, string value, string filePath, Action<object, object> callback ) {
+
+    /// <summary>
+    /// Unzip a local file
+    /// </summary>
+    /// <param name="zipFile">Path to .zip file to unpack</param>
+    /// <param name="extractPath">Destination path on local disk</param>
+    /// <param name="callback">Callback that will receive results</param>
+    public void unzipFile(string zipFile, string extractPath, Action<object> callback) {
       Task.Run(() => {
-        IniFile.IniWriteValue(section, key, value, filePath, callback);
+        try {
+          if (Directory.Exists(extractPath)) {
+            Directory.Delete(extractPath, true);
+          }
+
+          System.IO.Compression.ZipFile.ExtractToDirectory(zipFile, extractPath);
+
+          callback(new {
+            status = true
+          });
+        } catch (Exception e) {
+          callback(new {
+            status = false,
+            error = e.Message.ToString()
+          });
+        }
       });
     }
 
-    public void listenOnProcess(string processname, Action<object, object> callback) {
-      OutputDebugStringManager.Callback = OnOutputDebugString;
-      Task.Run(() => {
-        OutputDebugStringManager.ListenOnProcess(processname, callback);
-      });
+    #endregion Functions
+
+    #region Private Funcs
+
+    /// <summary>
+    /// Assure the file doesn't exist and the full folder path is created
+    /// </summary>
+    /// <param name="localFile"></param>
+    private static void PrepareLocalFileForDownload(string localFile) {
+      try {
+        // Make sure the file doesn't already exist - otherwise we'll fail
+        // downloading
+        if (File.Exists(localFile)) {
+          File.Delete(localFile);
+        }
+
+        var localFileInfo = new FileInfo(localFile);
+
+        Directory.CreateDirectory(localFileInfo.DirectoryName);
+      } catch (Exception) {
+
+      }
     }
 
-    public void stopProcesseListen(string processname, Action<object, object> callback) {
-      Task.Run(() => {
-        OutputDebugStringManager.StopListenOnProcess(processname, callback);
-      });
+    /// <summary>
+    /// https://stackoverflow.com/questions/10520048/calculate-md5-checksum-for-a-file
+    /// </summary>
+    /// <param name="filename"></param>
+    /// <returns></returns>
+    private static string CalculateMD5(string filename) {
+      try {
+        using (var md5 = MD5.Create()) {
+          using (var stream = File.OpenRead(filename)) {
+            var hash = md5.ComputeHash(stream);
+            return BitConverter.ToString(hash)
+                               .Replace("-", "")
+                               .ToLowerInvariant();
+          }
+        }
+      } catch(Exception) {
+        return String.Empty;
+      }
     }
 
+    /// <summary>
+    /// Sets the global |ServicePointManager| to support new TLS protocols
+    /// </summary>
+    private static void SetServicePointManagerGlobalParams() {
+      // Wrapping this with a try...catch... since we've seen that
+      // |ServicePointManager| might not always exist in memory
+      try {
+        ServicePointManager.Expect100Continue = true;
+        ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls |
+                                               SecurityProtocolType.Tls11 |
+                                               SecurityProtocolType.Tls12 |
+                                               SecurityProtocolType.Ssl3;
+      } catch (Exception) {
+        // NOTE(twolf): Suppressing errors - because if we really need to
+        // support these protocols for the file being downloaded, the error
+        // will return to the caller of |download|
+      }
+    }
     private void OnFileChanged(object id, object status, object data, bool isNew) {
       if (onFileListenerChanged != null) {
         onFileListenerChanged(id, status, data);
@@ -417,171 +533,6 @@ namespace overwolf.plugins.simpleio {
          onFileListenerChanged2(id, status, data, isNew);
       }
     }
-
-    private void OnOutputDebugString(int processId,string processName, string text) {
-      if (onOutputDebugString != null) {
-        onOutputDebugString(processId, processName,  text);
-      }
-    }
-
-    public void simulateMouseClick(int x, int y, Action<object> callback) {
-      if (_window == IntPtr.Zero) {
-        if (callback != null) {
-          callback(new { status = "error", error = "window handle undefined" });
-        }
-        return;
-      }
-
-      Task.Run(() => {
-        try {
-          SendMessage(_window, WM_LBUTTONDOWN, 0, MakeLParam(x, y));
-          Thread.Sleep(100);
-          SendMessage(_window, WM_LBUTTONUP, 0, MakeLParam(x, y));
-          if (callback != null) {
-            callback(new { status = "success" });
-          }
-        } catch (Exception ex) {
-          if (callback != null) {
-            callback(new { status = "error", error = ex.ToString() });
-          }
-        }
-      });
-    }
-
-    #region getCurrentCursorPosition
-    [StructLayout(LayoutKind.Sequential)]
-    public struct POINT {
-      public int X;
-      public int Y;
-
-      public POINT(int x, int y) {
-        this.X = x;
-        this.Y = y;
-      }
-
-      public override string ToString() {
-        return "{" + X + "," + Y + "}";
-      }
-    }
-
-    [DllImport("user32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    static extern bool GetCursorPos(out POINT lpPoint);
-
-    [DllImport("user32.dll")]
-    static extern IntPtr WindowFromPoint(POINT Point);
-
-    [DllImport("User32.dll", SetLastError = true, CharSet = CharSet.Auto)]
-    static extern long GetWindowText(IntPtr hwnd, StringBuilder lpString, long cch);
-
-    [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
-    static extern int GetWindowTextLength(IntPtr hWnd);
-
-    [DllImport("user32.dll")]
-    static extern bool ScreenToClient(IntPtr hwnd, ref POINT pt);
-
-    public void getCurrentCursorPosition(Action<object, object, object, object> callback) {
-      if (callback == null)
-        return;
-
-      try {
-        POINT point;
-        if (!GetCursorPos(out point)) {
-          callback(false, "Failed to GetCursorPos", 0, 0);
-          return;
-        }
-
-        IntPtr hWnd = WindowFromPoint(point);
-        if (hWnd == IntPtr.Zero) {
-          callback(false, "Failed to get WindowFromPoint", 0, 0);
-          return;
-        }
-
-        bool result = ScreenToClient(hWnd, ref point);
-        int length = GetWindowTextLength(hWnd);
-        StringBuilder windowText = new StringBuilder("", length + 5);
-        GetWindowText(hWnd, windowText, length + 2);
-
-        callback(result, windowText.ToString(), point.X, point.Y);
-      } catch (Exception ex) {
-        callback(false, string.Format("exception: {0}", ex.ToString()), 0, 0);
-      }
-    }
-
-    #endregion getCurrentCursorPosition
-
-    #region getMonitorDPI
-    private enum PROCESS_DPI_AWARENESS {
-      PROCESS_DPI_UNAWARE = 0,
-      PROCESS_SYSTEM_DPI_AWARE = 1,
-      PROCESS_PER_MONITOR_DPI_AWARE = 2
-    }
-
-    private enum MONITOR_DPI_TYPE {
-      MDT_EFFECTIVE_DPI = 0,
-      MDT_ANGULAR_DPI = 1,
-      MDT_RAW_DPI = 2,
-      MDT_DEFAULT = MDT_EFFECTIVE_DPI
-    };
-
-    [DllImport("Shcore.dll")]
-    private static extern int GetDpiForMonitor([In]IntPtr hmonitor, [In]MONITOR_DPI_TYPE dpiType, [Out]out uint dpiX, [Out]out uint dpiY);
-
-    [DllImport("SHCore.dll", SetLastError = true)]
-    private static extern int SetProcessDpiAwareness(PROCESS_DPI_AWARENESS awareness);
-
-    [DllImport("SHCore.dll", SetLastError = true)]
-    private static extern int GetProcessDpiAwareness(IntPtr hprocess, out PROCESS_DPI_AWARENESS awareness);
-
-    public void getMonitorDPI(double monitorHandle, Action<object, object> callback) {
-      if (callback == null)
-        return;
-
-      try {
-        try {
-          Task.Run(() => {
-            try {
-              PROCESS_DPI_AWARENESS value;
-              var result = GetProcessDpiAwareness(IntPtr.Zero, out value);
-              if (result != 0) {
-                callback(false, "error: no Dpi awareness");
-                return;
-              }
-
-              if (value != PROCESS_DPI_AWARENESS.PROCESS_PER_MONITOR_DPI_AWARE) {
-                if (SetProcessDpiAwareness(PROCESS_DPI_AWARENESS.PROCESS_PER_MONITOR_DPI_AWARE) != 0) {
-                  callback(false, "error: setting Dpi awareness");
-                  return;
-                }
-              }
-
-              uint dpiX = 0;
-              uint dpiY = 0;
-              result = GetDpiForMonitor(new IntPtr((long)monitorHandle),
-                MONITOR_DPI_TYPE.MDT_EFFECTIVE_DPI, out dpiX, out dpiY);
-
-              callback(result == 0, (int)dpiX);
-
-            } catch (Exception ex) {
-              callback(false, "Unknown error: " + ex.ToString());
-            }
-          });
-
-        } catch (Exception ex) {
-          callback(false, "Unknown error: " + ex.ToString());
-        }
-      } catch (Exception ex) {
-        callback(false, "Unknown error: " + ex.ToString());
-      }
-    }
-    #endregion getMonitorDPI
-
-    #endregion Functions
-
-    #region Private Funcs
-    [DllImport("USER32.dll")]
-    private static extern short GetKeyState(int nVirtKey);
-
     private bool NormalizePathWithFilePattern(string path, out string pattern, out string folder) {
       path = path.Replace('/', '\\');
       folder = path;
@@ -597,19 +548,6 @@ namespace overwolf.plugins.simpleio {
 
       return true;
     }
-
-    [DllImport("USER32.DLL", EntryPoint = "SendMessage")]
-    private static extern IntPtr SendMessage(IntPtr hWnd, int Msg, int wParam, int lParam);
-
-    private int MakeLParam(int LoWord, int HiWord) {
-      return ((HiWord << 16) | (LoWord & 0xffff));
-    }
-
-    private const int WM_LBUTTONDOWN = 0x0201;
-    private const int WM_LBUTTONUP = 0x0202;
-    private const int VK_LBUTTON = 0x01;
-    private const int VK_RBUTTON = 0x02;
-    private const int KEY_PRESSED = 0x8000;
     #endregion Private Funcs
   }
 }

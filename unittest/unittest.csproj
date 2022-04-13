@@ -53,6 +53,14 @@
     <Prefer32Bit>true</Prefer32Bit>
   </PropertyGroup>
   <ItemGroup>
+    <Reference Include="process-manager, Version=1.0.0.1, Culture=neutral, processorArchitecture=AMD64">
+      <SpecificVersion>False</SpecificVersion>
+      <HintPath>..\output\release\x64\process-manager.dll</HintPath>
+    </Reference>
+    <Reference Include="simple-io, Version=1.0.1.11, Culture=neutral, processorArchitecture=AMD64">
+      <SpecificVersion>False</SpecificVersion>
+      <HintPath>..\output\release\x64\simple-io.dll</HintPath>
+    </Reference>
     <Reference Include="System" />
     <Reference Include="System.Core" />
     <Reference Include="System.Xml.Linq" />
@@ -75,14 +83,6 @@
     <ProjectReference Include="..\plugins\downloader\downloader.csproj">
       <Project>{bf0383b5-2899-4945-acfd-450682b06a55}</Project>
       <Name>downloader</Name>
-    </ProjectReference>
-    <ProjectReference Include="..\plugins\process_manager\process_manager.csproj">
-      <Project>{FB2F1840-CC90-488A-8085-A825A4C432F1}</Project>
-      <Name>process_manager</Name>
-    </ProjectReference>
-    <ProjectReference Include="..\plugins\simple-io-plugin\simple-io-plugin.csproj">
-      <Project>{6F678D1A-2549-470A-8E52-644A826A5E38}</Project>
-      <Name>simple-io-plugin</Name>
     </ProjectReference>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />

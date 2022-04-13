@@ -1,136 +1,52 @@
 ﻿using System;
-using System.ComponentModel;
 using System.IO;
 using System.Net;
 using System.Security.Cryptography;
-using System.Threading;
 
 namespace com.overwolf.dwnldr {
   public class Downloader {
-    private const string kErrorAlreadyDownloading = "already_downloading";
-    private const string kErrorFailedUnknownReason = "failed_unknown_reason";
-
-    public event Action<object> onDownloadError = null;
-    public event Action<object> onDownloadProgress = null;
-    public event Action<object> onDownloadComplete = null;  
-
-    // Allow only 1 download per instance    
-    private bool _downloading = false;
-
-    // Store this so we give context upon callbacks
-    private string _url;
-    private string _localFile;
-    private int _previousProgress;
-    private WebClientGzip _webClient;
-    
     /// Public Methods
     public Downloader() {
     }
 
     /// <summary>
-    /// 
+    /// Download a file from the web
     /// </summary>
     /// <param name="url">URL to download from</param>
     /// <param name="localFile">Destination file on local disk</param>
-    /// download completion
-    /// </param>
-    public void downloadFile(string url, string localFile) {
-      if (_downloading) {
-        FireDownloadErrorEvent(url, kErrorAlreadyDownloading);
-        return;
-      }
-
+    /// <param name="callback">Callback that will receive results</param>
+    /// <param name="onProgress">Callback receive download progress</param>
+    public void downloadFile(
+      string url,
+      string localFile,
+      Action<object> callback,
+      Action<int> onProgress = null
+    ) {
       PrepareLocalFileForDownload(localFile);
       SetServicePointManagerGlobalParams();
 
       try {
-        _url = url;
-        _localFile = localFile;
-        _previousProgress = -1;
+        using (WebClient wc = new WebClient()) {
+          if (onProgress != null) {
+            wc.DownloadProgressChanged += (_, e) => {
+              onProgress(e.ProgressPercentage);
+            };
+          }
 
-        _webClient = new WebClientGzip();
-        _webClient.DownloadFileCompleted += OnDownloadFileCompleted;
-        _webClient.DownloadProgressChanged += OnDownloadProgressChanged;
-        _webClient.DownloadFileAsync(new Uri(url), localFile);
-        _downloading = true;
-      } catch (Exception e) {
-        FireDownloadErrorEvent(url, e.Message.ToString());
-      }
-    }
+          wc.DownloadFileCompleted += (_, e) => {
+            callback(new {
+              status = true,
+              md5 = CalculateMD5(localFile)
+            });
+          };
 
-    /// <summary>
-    /// 
-    /// </summary>
-    /// <param name="reason"></param>
-    private void FireDownloadErrorEvent(string url, string reason) {
-      if (onDownloadError == null) {
-        return;
-      }
-
-      ThreadPool.QueueUserWorkItem(_ => {
-        onDownloadError(new {
-          url = url,
-          reason = reason
-        });
-      });
-    }
-
-
-    /// <summary>
-    /// 
-    /// </summary>
-    /// <param name="sender"></param>
-    /// <param name="e"></param>
-    private void OnDownloadFileCompleted(object sender, 
-                                         AsyncCompletedEventArgs e) {
-
-      _downloading = false;
-
-      if (onDownloadComplete == null) {
-        return;
-      }
-
-      if (e.Error != null) {
-        try {
-          FireDownloadErrorEvent(_url, e.Error.Message.ToString());
-        } catch (Exception) {
-          FireDownloadErrorEvent(_url, kErrorFailedUnknownReason);
+          wc.DownloadFileAsync(new System.Uri(url), localFile);
         }
-        return;
-      }
-
-      onDownloadComplete(new {
-        url = _url,
-        localFile = _localFile,
-        md5 = CalculateMD5(_localFile)
-      });
-    }
-
-    /// <summary>
-    /// 
-    /// </summary>
-    /// <param name="sender"></param>
-    /// <param name="e"></param>
-    private void OnDownloadProgressChanged(
-      object sender, 
-      DownloadProgressChangedEventArgs e) {
-
-      if (onDownloadProgress == null) {
-        return;
-      }
-
-      if (_previousProgress == e.ProgressPercentage) {
-        return;
-      }
-
-      _previousProgress = e.ProgressPercentage;
-
-      try {
-        onDownloadProgress(new {
-          url = _url,
-          progress = e.ProgressPercentage
+      } catch (Exception e) {
+        callback(new {
+          status = false,
+          error = e.Message.ToString()
         });
-      } catch (Exception) {
       }
     }
 
@@ -140,7 +56,7 @@ namespace com.overwolf.dwnldr {
     /// <param name="localFile"></param>
     private void PrepareLocalFileForDownload(string localFile) {
       try {
-        // Make sure the file doesn't already exist - otherwise we'll fail 
+        // Make sure the file doesn't already exist - otherwise we'll fail
         // downloading
         File.Delete(localFile);
       } catch (Exception) {
