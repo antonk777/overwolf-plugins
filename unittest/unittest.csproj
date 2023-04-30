@@ -9,8 +9,9 @@
     <AppDesignerFolder>Properties</AppDesignerFolder>
     <RootNamespace>overwolf.plugins.unittest</RootNamespace>
     <AssemblyName>unittest</AssemblyName>
-    <TargetFrameworkVersion>v4.5</TargetFrameworkVersion>
+    <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
+    <TargetFrameworkProfile />
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|x86'">
     <DebugSymbols>true</DebugSymbols>
@@ -53,10 +54,6 @@
     <Prefer32Bit>true</Prefer32Bit>
   </PropertyGroup>
   <ItemGroup>
-    <Reference Include="process-manager, Version=1.0.0.1, Culture=neutral, processorArchitecture=AMD64">
-      <SpecificVersion>False</SpecificVersion>
-      <HintPath>..\output\release\x64\process-manager.dll</HintPath>
-    </Reference>
     <Reference Include="simple-io, Version=1.0.1.11, Culture=neutral, processorArchitecture=AMD64">
       <SpecificVersion>False</SpecificVersion>
       <HintPath>..\output\release\x64\simple-io.dll</HintPath>
@@ -70,6 +67,7 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="websocket-server-tests.cs" />
     <Compile Include="downloader-tests.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
@@ -77,12 +75,23 @@
     <Compile Include="simple-io-plugin-tests.cs" />
   </ItemGroup>
   <ItemGroup>
+    <None Include="..\.editorconfig">
+      <Link>.editorconfig</Link>
+    </None>
     <None Include="App.config" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\plugins\downloader\downloader.csproj">
       <Project>{bf0383b5-2899-4945-acfd-450682b06a55}</Project>
       <Name>downloader</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\plugins\process_manager\process-manager.csproj">
+      <Project>{fb2f1840-cc90-488a-8085-a825a4c432f1}</Project>
+      <Name>process-manager</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\plugins\websocket-server\websocket-server.csproj">
+      <Project>{41f872fd-ec33-4e0b-9735-3585920fb14b}</Project>
+      <Name>websocket-server</Name>
     </ProjectReference>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
